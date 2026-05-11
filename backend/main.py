@@ -84,97 +84,97 @@ async def root() -> dict:
     "/api/upload-xml",
     status_code=status.HTTP_201_CREATED,
     tags=["Ingestion"],
-    summary="Upload a POS XML file",
+    summary="Upload multiple POS XML files",
 )
-async def upload_xml(file: UploadFile = File(...)) -> dict:
+async def upload_xml(files: list[UploadFile] = File(...)) -> dict:
     """
-    Accept a POS XML file, parse it into JSON, and persist it.
+    Accept POS XML files, parse them into JSON, and persist them.
 
-    - **file**: The raw XML file from the POS system.
+    - **files**: The raw XML files from the POS system.
 
-    Returns the parsed JSON representation along with the generated record ID.
+    Returns the parsed JSON representation along with the generated record IDs.
     """
-    # ── 1. Validate MIME type ────────────────────────────────────────────────
-    if file.content_type not in ("text/xml", "application/xml", "application/octet-stream"):
-        logger.warning("Rejected file with content-type: %s", file.content_type)
-        # We warn but don't hard-reject — some clients send generic MIME types.
+    results = []
+    
+    for file in files:
+        # ── 1. Validate MIME type ────────────────────────────────────────────────
+        if file.content_type not in ("text/xml", "application/xml", "application/octet-stream"):
+            logger.warning("Rejected file with content-type: %s", file.content_type)
+            # We warn but don't hard-reject — some clients send generic MIME types.
 
-    # ── 2. Read raw bytes ────────────────────────────────────────────────────
-    raw_bytes: bytes = await file.read()
-    if not raw_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Uploaded file is empty.",
-        )
+        # ── 2. Read raw bytes ────────────────────────────────────────────────────
+        raw_bytes: bytes = await file.read()
+        if not raw_bytes:
+            results.append({"filename": file.filename, "status": "error", "message": "Uploaded file is empty."})
+            continue
 
-    raw_xml: str = raw_bytes.decode("utf-8")
-    logger.info("Received XML file '%s' (%d bytes)", file.filename, len(raw_bytes))
+        raw_xml: str = raw_bytes.decode("utf-8")
+        logger.info("Received XML file '%s' (%d bytes)", file.filename, len(raw_bytes))
 
-    # ── 3. Parse XML → dict ──────────────────────────────────────────────────
-    try:
-        parsed_data: dict = xmltodict.parse(raw_xml)
-    except Exception as exc:
-        logger.error("XML parse error: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Invalid XML: {exc}",
-        )
-
-    # Extract the message type from the root tag
-    message_type = None
-    if parsed_data and isinstance(parsed_data, dict):
-        # xmltodict usually returns a dict with one root key
-        root_keys = list(parsed_data.keys())
-        if root_keys:
-            message_type = root_keys[0]
-
-    logger.info("Successfully parsed XML into dict (Type: %s) with %d top-level key(s)", message_type, len(parsed_data))
-
-    # ── 4. Persist to database via Prisma ────────────────────────────────────
-    try:
-        # We store the parsed_data as a JSON string for Prisma Json field compatibility
-        record = await db.posdatarecord.create(
-            data={
-                "source": "POS",
-                "raw_xml": raw_xml,
-                "parsed_data": json.dumps(parsed_data),
-                "message_type": message_type,
-            }
-        )
-        record_id = record.id
-        logger.info("Inserted POSDataRecord with id=%s", record_id)
-    except Exception as exc:
-        logger.error("Database insertion error: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save record to database: {exc}",
-        )
-
-    # ── 5. Background Processing ─────────────────────────────────────────────
-    # If it's an Item Maintenance Request, process it to update the catalog.
-    if message_type == "NAXML-ItemMaintenanceRequest":
+        # ── 3. Parse XML → dict ──────────────────────────────────────────────────
         try:
-            await process_item_maintenance(parsed_data)
-            logger.info("Processed item maintenance for record %s", record_id)
+            parsed_data: dict = xmltodict.parse(raw_xml)
         except Exception as exc:
-            logger.error("Item maintenance processing error: %s", exc)
+            logger.error("XML parse error for %s: %s", file.filename, exc)
+            results.append({"filename": file.filename, "status": "error", "message": f"Invalid XML: {exc}"})
+            continue
 
-    # If it's a POS Export (Sales), process it to update the sales tables.
-    elif message_type == "POSExport":
+        # Extract the message type from the root tag
+        message_type = None
+        if parsed_data and isinstance(parsed_data, dict):
+            # xmltodict usually returns a dict with one root key
+            root_keys = list(parsed_data.keys())
+            if root_keys:
+                message_type = root_keys[0]
+
+        logger.info("Successfully parsed XML into dict (Type: %s) with %d top-level key(s)", message_type, len(parsed_data))
+
+        # ── 4. Persist to database via Prisma ────────────────────────────────────
         try:
-            await process_sales_export(parsed_data)
-            logger.info("Processed sales export for record %s", record_id)
+            # We store the parsed_data as a JSON string for Prisma Json field compatibility
+            record = await db.posdatarecord.create(
+                data={
+                    "source": "POS",
+                    "raw_xml": raw_xml,
+                    "parsed_data": json.dumps(parsed_data),
+                    "message_type": message_type,
+                }
+            )
+            record_id = record.id
+            logger.info("Inserted POSDataRecord with id=%s", record_id)
         except Exception as exc:
-            logger.error("Sales export processing error: %s", exc)
+            logger.error("Database insertion error for %s: %s", file.filename, exc)
+            results.append({"filename": file.filename, "status": "error", "message": f"Failed to save record to database: {exc}"})
+            continue
 
-    # ── 6. Return response ───────────────────────────────────────────────────
-    return {
-        "message": "XML uploaded and parsed successfully.",
-        "record_id": record_id,
-        "filename": file.filename,
-        "message_type": message_type,
-        "parsed_data": parsed_data,
-    }
+        # ── 5. Background Processing ─────────────────────────────────────────────
+        # If it's an Item Maintenance Request, process it to update the catalog.
+        if message_type == "NAXML-ItemMaintenanceRequest":
+            try:
+                await process_item_maintenance(parsed_data)
+                logger.info("Processed item maintenance for record %s", record_id)
+            except Exception as exc:
+                logger.error("Item maintenance processing error: %s", exc)
+
+        # If it's a POS Export (Sales), process it to update the sales tables.
+        elif message_type == "POSExport":
+            try:
+                await process_sales_export(parsed_data)
+                logger.info("Processed sales export for record %s", record_id)
+            except Exception as exc:
+                logger.error("Sales export processing error: %s", exc)
+
+        # ── 6. Add to results ───────────────────────────────────────────────────
+        results.append({
+            "status": "success",
+            "message": "XML uploaded and parsed successfully.",
+            "record_id": record_id,
+            "filename": file.filename,
+            "message_type": message_type,
+            "parsed_data": parsed_data,
+        })
+
+    return {"results": results}
 
 
 async def process_item_maintenance(data: dict):

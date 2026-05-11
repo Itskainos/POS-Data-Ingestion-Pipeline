@@ -7,10 +7,12 @@ import { useCallback, useRef, useState } from "react";
 type UploadStatus = "idle" | "loading" | "success" | "error";
 
 interface UploadResult {
+  status?: string;
   message: string;
-  record_id: string;
+  record_id?: string;
   filename: string;
-  parsed_data: Record<string, unknown>;
+  message_type?: string;
+  parsed_data?: Record<string, unknown>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -26,31 +28,43 @@ function formatBytes(bytes: number): string {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function XmlUploader() {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<UploadStatus>("idle");
-  const [result, setResult] = useState<UploadResult | null>(null);
+  const [results, setResults] = useState<UploadResult[]>([]);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── File selection ──────────────────────────────────────────────────────────
 
-  const handleFileChange = (file: File | null) => {
-    if (!file) return;
-    if (!file.name.endsWith(".xml")) {
+  const handleFileChange = (files: FileList | File[] | null) => {
+    if (!files || files.length === 0) return;
+    
+    const validFiles = Array.from(files).filter(f => f.name.endsWith(".xml"));
+    
+    if (validFiles.length === 0) {
       setErrorMessage("Only .xml files are accepted.");
       setStatus("error");
-      setSelectedFile(null);
       return;
     }
-    setSelectedFile(file);
+    
+    if (validFiles.length !== files.length) {
+      setErrorMessage("Some files were skipped because they are not .xml files.");
+    } else {
+      setErrorMessage("");
+    }
+
+    setSelectedFiles(prev => [...prev, ...validFiles]);
     setStatus("idle");
-    setResult(null);
-    setErrorMessage("");
+    setResults([]);
   };
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFileChange(e.target.files?.[0] ?? null);
+    handleFileChange(e.target.files);
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
   };
 
   // ── Drag & Drop ─────────────────────────────────────────────────────────────
@@ -65,20 +79,20 @@ export default function XmlUploader() {
   const onDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    handleFileChange(e.dataTransfer.files?.[0] ?? null);
+    handleFileChange(e.dataTransfer.files);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Upload ──────────────────────────────────────────────────────────────────
 
   const handleUpload = async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
     setStatus("loading");
-    setResult(null);
+    setResults([]);
     setErrorMessage("");
 
     const formData = new FormData();
-    formData.append("file", selectedFile);
+    selectedFiles.forEach(f => formData.append("files", f));
 
     try {
       const response = await fetch("/api/upload-xml", {
@@ -91,9 +105,10 @@ export default function XmlUploader() {
         throw new Error(err.detail ?? `Server responded with ${response.status}`);
       }
 
-      const data: UploadResult = await response.json();
-      setResult(data);
+      const data = await response.json();
+      setResults(data.results || []);
       setStatus("success");
+      setSelectedFiles([]); // clear after upload
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Upload failed.");
       setStatus("error");
@@ -103,9 +118,9 @@ export default function XmlUploader() {
   // ── Reset ───────────────────────────────────────────────────────────────────
 
   const handleReset = () => {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setStatus("idle");
-    setResult(null);
+    setResults([]);
     setErrorMessage("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -134,7 +149,7 @@ export default function XmlUploader() {
               ? "border-sky-400 bg-sky-500/10"
               : "border-white/20 hover:border-sky-500/60 hover:bg-white/5"
           }
-          ${selectedFile ? "border-emerald-500/50 bg-emerald-500/5" : ""}
+          ${selectedFiles.length > 0 ? "border-emerald-500/50 bg-emerald-500/5" : ""}
         `}
       >
         {/* Hidden native input */}
@@ -142,35 +157,34 @@ export default function XmlUploader() {
           ref={fileInputRef}
           id="xml-file-input"
           type="file"
+          multiple
           accept=".xml,text/xml,application/xml"
           className="sr-only"
           onChange={onInputChange}
         />
 
-        {selectedFile ? (
-          <>
-            {/* File selected state */}
-            <span className="text-3xl">📄</span>
-            <div className="text-center">
-              <p className="text-sm font-semibold text-emerald-400 truncate max-w-xs">
-                {selectedFile.name}
-              </p>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {formatBytes(selectedFile.size)}
-              </p>
-            </div>
-            <button
-              id="remove-file-btn"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleReset();
-              }}
-              className="text-xs text-slate-500 hover:text-rose-400 transition-colors mt-1"
-            >
-              Remove
-            </button>
-          </>
+        {selectedFiles.length > 0 ? (
+          <div className="w-full flex flex-col items-center max-h-40 overflow-y-auto px-4 py-2">
+            <span className="text-3xl mb-2">📄</span>
+            {selectedFiles.map((f, i) => (
+              <div key={i} className="flex items-center gap-2 mb-1 w-full justify-center">
+                <p className="text-sm font-semibold text-emerald-400 truncate max-w-[150px] sm:max-w-xs">
+                  {f.name}
+                </p>
+                <p className="text-xs text-slate-500">({formatBytes(f.size)})</p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRemoveFile(i);
+                  }}
+                  className="text-xs text-rose-400 hover:text-rose-300 ml-2 bg-rose-400/10 px-2 py-0.5 rounded"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
         ) : (
           <>
             {/* Empty state */}
@@ -193,12 +207,12 @@ export default function XmlUploader() {
         id="upload-submit-btn"
         type="button"
         onClick={handleUpload}
-        disabled={!selectedFile || status === "loading"}
+        disabled={selectedFiles.length === 0 || status === "loading"}
         className={`
           w-full py-3 px-6 rounded-xl font-semibold text-sm
           transition-all duration-200
           ${
-            !selectedFile || status === "loading"
+            selectedFiles.length === 0 || status === "loading"
               ? "bg-slate-800 text-slate-600 cursor-not-allowed"
               : "bg-sky-500 hover:bg-sky-400 text-white shadow-lg shadow-sky-500/20 active:scale-[0.98]"
           }
@@ -234,51 +248,61 @@ export default function XmlUploader() {
       </button>
 
       {/* Success Banner */}
-      {status === "success" && result && (
-        <div
-          id="upload-success-banner"
-          role="alert"
-          className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-3"
-        >
-          <div className="flex items-center gap-2">
-            <span className="text-lg">✅</span>
-            <p className="text-sm font-semibold text-emerald-400">
-              {result.message}
-            </p>
-          </div>
-          <div className="text-xs text-slate-400 space-y-1">
-            <p>
-              <span className="text-slate-500">Type: </span>
-              <span className="text-sky-300 font-semibold">{(result as any).message_type || "Unknown"}</span>
-            </p>
-            <p>
-              <span className="text-slate-500">Record ID: </span>
-              <code className="text-sky-300 font-mono">{result.record_id}</code>
-            </p>
-            <p>
-              <span className="text-slate-500">File: </span>
-              {result.filename}
-            </p>
-          </div>
+      {status === "success" && results.length > 0 && (
+        <div className="space-y-4">
+          {results.map((res, idx) => (
+            <div
+              key={idx}
+              className={`rounded-2xl border p-4 space-y-3 ${
+                res.status === "error" 
+                  ? "border-rose-500/30 bg-rose-500/10" 
+                  : "border-emerald-500/30 bg-emerald-500/10"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{res.status === "error" ? "❌" : "✅"}</span>
+                <p className={`text-sm font-semibold ${res.status === "error" ? "text-rose-400" : "text-emerald-400"}`}>
+                  {res.message}
+                </p>
+              </div>
+              <div className="text-xs text-slate-400 space-y-1">
+                {res.message_type && (
+                  <p>
+                    <span className="text-slate-500">Type: </span>
+                    <span className="text-sky-300 font-semibold">{res.message_type}</span>
+                  </p>
+                )}
+                {res.record_id && (
+                  <p>
+                    <span className="text-slate-500">Record ID: </span>
+                    <code className="text-sky-300 font-mono">{res.record_id}</code>
+                  </p>
+                )}
+                <p>
+                  <span className="text-slate-500">File: </span>
+                  {res.filename}
+                </p>
+              </div>
 
-          {/* Parsed JSON Preview */}
-          <details className="group">
-            <summary className="text-xs text-sky-400 cursor-pointer hover:text-sky-300 transition-colors list-none flex items-center gap-1">
-              <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
-              View parsed JSON
-            </summary>
-            <pre className="mt-2 text-xs bg-slate-900/60 text-emerald-300 rounded-xl p-3 overflow-x-auto max-h-64">
-              {JSON.stringify(result.parsed_data, null, 2)}
-            </pre>
-          </details>
-
+              {res.parsed_data && (
+                <details className="group">
+                  <summary className="text-xs text-sky-400 cursor-pointer hover:text-sky-300 transition-colors list-none flex items-center gap-1">
+                    <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+                    View parsed JSON
+                  </summary>
+                  <pre className="mt-2 text-xs bg-slate-900/60 text-emerald-300 rounded-xl p-3 overflow-x-auto max-h-64">
+                    {JSON.stringify(res.parsed_data, null, 2)}
+                  </pre>
+                </details>
+              )}
+            </div>
+          ))}
           <button
-            id="upload-again-btn"
             type="button"
             onClick={handleReset}
             className="text-xs text-slate-500 hover:text-sky-400 transition-colors"
           >
-            Upload another file →
+            Upload more files →
           </button>
         </div>
       )}
