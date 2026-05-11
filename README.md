@@ -1,3 +1,12 @@
+---
+title: pos-backend
+emoji: 🏢
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # POS Data Ingestion & Pipeline
 
 A full-stack boilerplate for accepting raw XML files from POS systems, parsing them into JSON, and storing them in Neon (Serverless PostgreSQL) using Prisma.
