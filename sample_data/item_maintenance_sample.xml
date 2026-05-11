@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NAXML-ItemMaintenanceRequest>
+  <RequestHeader>
+    <Date>2026-05-08</Date>
+    <Time>10:00:00</Time>
+  </RequestHeader>
+  <ItemRecord>
+    <ItemCode>1234567890</ItemCode>
+    <ItemDescription>Soda 12oz</ItemDescription>
+    <Price>1.99</Price>
+    <DepartmentID>1</DepartmentID>
+  </ItemRecord>
+</NAXML-ItemMaintenanceRequest>

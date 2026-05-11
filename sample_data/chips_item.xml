@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NAXML-ItemMaintenanceRequest>
+<RequestHeader>
+<Date>2026-05-08</Date>
+<Time>10:05:00</Time>
+</RequestHeader>
+<ItemRecord>
+<ItemCode>2345678901</ItemCode>
+<ItemDescription>Potato Chips</ItemDescription>
+<Price>2.49</Price>
+<DepartmentID>2</DepartmentID>
+</ItemRecord>
+</NAXML-ItemMaintenanceRequest>

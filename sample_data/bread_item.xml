@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NAXML-ItemMaintenanceRequest>
+<RequestHeader>
+<Date>2026-05-08</Date>
+<Time>10:15:00</Time>
+</RequestHeader>
+<ItemRecord>
+<ItemCode>4567890123</ItemCode>
+<ItemDescription>Whole Wheat Bread</ItemDescription>
+<Price>2.89</Price>
+<DepartmentID>4</DepartmentID>
+</ItemRecord>
+</NAXML-ItemMaintenanceRequest>

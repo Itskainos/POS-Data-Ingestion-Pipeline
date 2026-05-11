@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NAXML-ItemMaintenanceRequest>
+<RequestHeader>
+<Date>2026-05-08</Date>
+<Time>10:10:00</Time>
+</RequestHeader>
+<ItemRecord>
+<ItemCode>3456789012</ItemCode>
+<ItemDescription>Milk 1 Gallon</ItemDescription>
+<Price>3.99</Price>
+<DepartmentID>3</DepartmentID>
+</ItemRecord>
+</NAXML-ItemMaintenanceRequest>

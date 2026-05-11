@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-inter: "Inter", system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@layer utilities {
+  /* Subtle animated gradient used on the hero section */
+  .gradient-text {
+    @apply bg-gradient-to-r from-sky-400 via-cyan-300 to-blue-400 bg-clip-text text-transparent;
+  }
+
+  /* Glass card surface */
+  .glass {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl;
+  }
+
+  /* Drag-over highlight */
+  .drag-active {
+    @apply border-sky-400 bg-sky-500/10;
+  }
+}
