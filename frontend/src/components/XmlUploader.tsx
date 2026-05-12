@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import JSZip from "jszip";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -123,6 +124,42 @@ export default function XmlUploader() {
     setResults([]);
     setErrorMessage("");
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  // ── Download helpers ────────────────────────────────────────────────────────
+
+  const downloadJson = (result: UploadResult) => {
+    const json = JSON.stringify(result.parsed_data, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = result.filename.replace(/\.xml$/i, ".json");
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadAllJson = async () => {
+    const withData = results.filter((r) => r.parsed_data);
+    if (withData.length === 0) return;
+
+    if (withData.length === 1) {
+      downloadJson(withData[0]);
+      return;
+    }
+
+    const zip = new JSZip();
+    withData.forEach((r) => {
+      const filename = r.filename.replace(/\.xml$/i, ".json");
+      zip.file(filename, JSON.stringify(r.parsed_data, null, 2));
+    });
+    const blob = await zip.generateAsync({ type: "blob" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "extracted_json.zip";
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -250,6 +287,27 @@ export default function XmlUploader() {
       {/* Success Banner */}
       {status === "success" && results.length > 0 && (
         <div className="space-y-4">
+          {/* Bulk download bar */}
+          {results.some((r) => r.parsed_data) && (
+            <div className="flex items-center justify-between rounded-xl border border-sky-500/20 bg-sky-500/5 px-4 py-2.5">
+              <p className="text-xs text-slate-400">
+                <span className="text-sky-300 font-semibold">{results.filter((r) => r.parsed_data).length}</span>
+                {" "}JSON file{results.filter((r) => r.parsed_data).length !== 1 ? "s" : ""} ready
+              </p>
+              <button
+                id="download-all-json-btn"
+                type="button"
+                onClick={downloadAllJson}
+                className="flex items-center gap-1.5 text-xs font-semibold text-sky-300 hover:text-white bg-sky-500/15 hover:bg-sky-500/30 border border-sky-500/30 px-3 py-1.5 rounded-lg transition-all duration-150 active:scale-95"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                {results.filter((r) => r.parsed_data).length > 1 ? "Download All (ZIP)" : "Download JSON"}
+              </button>
+            </div>
+          )}
+
           {results.map((res, idx) => (
             <div
               key={idx}
@@ -261,9 +319,24 @@ export default function XmlUploader() {
             >
               <div className="flex items-center gap-2">
                 <span className="text-lg">{res.status === "error" ? "❌" : "✅"}</span>
-                <p className={`text-sm font-semibold ${res.status === "error" ? "text-rose-400" : "text-emerald-400"}`}>
+                <p className={`text-sm font-semibold flex-1 ${res.status === "error" ? "text-rose-400" : "text-emerald-400"}`}>
                   {res.message}
                 </p>
+                {/* Per-file download button */}
+                {res.parsed_data && (
+                  <button
+                    id={`download-json-btn-${idx}`}
+                    type="button"
+                    title={`Download ${res.filename.replace(/\.xml$/i, ".json")}`}
+                    onClick={() => downloadJson(res)}
+                    className="flex items-center gap-1 text-xs text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-500/25 border border-emerald-500/20 px-2.5 py-1 rounded-lg transition-all duration-150 active:scale-95 shrink-0"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                    .json
+                  </button>
+                )}
               </div>
               <div className="text-xs text-slate-400 space-y-1">
                 {res.message_type && (
