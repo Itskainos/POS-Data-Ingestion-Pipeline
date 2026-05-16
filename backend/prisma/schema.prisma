@@ -158,6 +158,9 @@ model SalesLineItem {
   salesAmount    Float    @default(0)
   taxAmount      Float    @default(0)
 
+  productMasterId String?
+  productMaster   ProductMaster? @relation(fields: [productMasterId], references: [id])
+
   createdAt      DateTime @default(now())
 
   @@map("sales_line_items")
@@ -216,6 +219,9 @@ model ProductExtract {
   department    String?
   unitPrice     Float?
 
+  productMasterId String?
+  productMaster   ProductMaster? @relation(fields: [productMasterId], references: [id])
+
   createdAt     DateTime @default(now())
 
   @@map("product_extracts")
@@ -236,6 +242,8 @@ model ProductMaster {
   updatedAt     DateTime @updatedAt
 
   aliases       ProductAlias[]
+  salesLineItems SalesLineItem[]
+  extracts      ProductExtract[]
 
   @@map("product_masters")
 }

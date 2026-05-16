@@ -133,7 +133,12 @@ export default function ProductNormalizationPage() {
                     className={`w-full text-left px-4 py-3 rounded-xl border transition-all ${selectedProduct?.id === u.id ? "bg-sky-500/10 border-sky-500/30 ring-1 ring-sky-500/50" : "bg-transparent border-transparent hover:bg-white/5"}`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-sm text-slate-200">{u.rawName}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm text-slate-200">{u.rawName}</span>
+                        {u.suggestedMatch && (
+                          <span className="text-[9px] bg-sky-500/20 text-sky-400 border border-sky-500/30 px-1.5 py-0.5 rounded font-bold tracking-tighter uppercase">Suggested</span>
+                        )}
+                      </div>
                       <span className="text-[10px] text-slate-500 bg-white/5 px-2 py-0.5 rounded-full">{u.occurrences}x</span>
                     </div>
                     <div className="flex items-center gap-3 mt-1.5 text-[10px] text-slate-500">

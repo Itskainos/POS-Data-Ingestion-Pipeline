@@ -2,32 +2,33 @@
 
 import { useEffect, useState } from "react";
 
-interface Sale {
+interface Transaction {
   id: string;
-  transaction_id: string;
-  timestamp: string;
-  grand_total: number;
-  payment_type: string;
-  items?: { sku: string; name: string; quantity: number; price: number }[];
+  itemName: string;
+  rawName: string;
+  amount: number;
+  quantity: number;
+  storeCode: string;
+  businessDate: string;
+  mapped: boolean;
 }
 
 interface Summary {
   total_revenue: number;
   total_tax: number;
   transaction_count: number;
+  average_ticket: number;
 }
 
 interface VelocityItem {
-  sku: string;
   name: string;
   quantity_sold: number;
   revenue: number;
+  mapped: boolean;
 }
 
-const API_KEY = "dev-secret-key"; // Hardcoded for demo, normally from env vars
-
 export default function SalesDashboard() {
-  const [sales, setSales] = useState<Sale[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [velocityItems, setVelocityItems] = useState<VelocityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,27 +38,23 @@ export default function SalesDashboard() {
     setIsLoading(true);
     setError(null);
     try {
-      // 1. Fetch Top-Level Metrics (Unsecured endpoint for now)
-      const summaryRes = await fetch("/api/dashboard/sales");
-      if (!summaryRes.ok) throw new Error("Failed to fetch dashboard summary");
+      // 1. Fetch Normalized Overview
+      const summaryRes = await fetch("/api/analytics/overview");
+      if (!summaryRes.ok) throw new Error("Failed to fetch analytics summary");
       const summaryData = await summaryRes.json();
       setSummary(summaryData.summary);
 
-      // 2. Fetch Paginated Sales Log (Secured Data API)
-      const salesRes = await fetch("/api/v1/sales?limit=10", {
-        headers: { "X-API-Key": API_KEY }
-      });
-      if (!salesRes.ok) throw new Error("Failed to fetch sales history");
-      const salesData = await salesRes.json();
-      setSales(salesData.data || []);
-
-      // 3. Fetch Inventory Velocity (Secured Data API)
-      const velocityRes = await fetch("/api/v1/inventory/velocity?days=30&limit=5", {
-        headers: { "X-API-Key": API_KEY }
-      });
-      if (!velocityRes.ok) throw new Error("Failed to fetch inventory velocity");
+      // 2. Fetch Normalized Top Products
+      const velocityRes = await fetch("/api/analytics/top-products?limit=5");
+      if (!velocityRes.ok) throw new Error("Failed to fetch top products");
       const velocityData = await velocityRes.json();
       setVelocityItems(velocityData.data || []);
+
+      // 3. Fetch Recent Transactions (Synthesized from Line Items)
+      const transRes = await fetch("/api/analytics/recent-transactions?limit=10");
+      if (!transRes.ok) throw new Error("Failed to fetch recent transactions");
+      const transData = await transRes.json();
+      setTransactions(transData.transactions || []);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -152,13 +149,11 @@ export default function SalesDashboard() {
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest relative z-10">Avg. Ticket</p>
           <p className="text-4xl font-black text-white mt-3 flex items-baseline gap-1 relative z-10">
             <span className="text-amber-500 text-2xl">$</span>
-            {summary && summary.transaction_count > 0 
-              ? (summary.total_revenue / summary.transaction_count).toFixed(2) 
-              : "0.00"}
+            {summary?.average_ticket.toLocaleString(undefined, { minimumFractionDigits: 2 }) || "0.00"}
           </p>
           <div className="flex items-center gap-2 mt-5 text-xs text-amber-400 font-medium bg-amber-500/10 w-fit px-3 py-1.5 rounded-full border border-amber-500/20">
             <span>📊</span>
-            Calculated field
+            Normalized Data
           </div>
         </div>
       </div>
@@ -181,19 +176,24 @@ export default function SalesDashboard() {
                </div>
             ) : (
               velocityItems.map((item, idx) => (
-                <div key={item.sku} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] transition-colors group flex justify-between items-center">
+                <div key={item.name} className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.08] transition-colors group flex justify-between items-center">
                   <div className="flex gap-3 items-center">
                     <div className="w-8 h-8 rounded-full bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold text-xs border border-indigo-500/20 shadow-inner group-hover:bg-indigo-500/20 transition-colors">
                       #{idx + 1}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">{item.name}</p>
-                      <p className="text-xs text-slate-500 font-mono mt-0.5">{item.sku}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">{item.name}</p>
+                        {item.mapped && (
+                          <span className="text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 py-0.5 rounded font-bold uppercase">Mapped</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">${item.revenue.toFixed(2)} total revenue</p>
                     </div>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-bold text-white bg-white/5 px-2 py-0.5 rounded-md inline-block">
-                      {item.quantity_sold} <span className="text-[10px] font-normal text-slate-400">units</span>
+                      {Math.round(item.quantity_sold)} <span className="text-[10px] font-normal text-slate-400">units</span>
                     </p>
                   </div>
                 </div>
@@ -211,48 +211,51 @@ export default function SalesDashboard() {
             <p className="text-xs text-slate-500 mt-1">Detailed log powered by secure paginated API</p>
           </div>
 
-          {sales.length === 0 ? (
+          {transactions.length === 0 ? (
             <div className="text-center py-16 border-2 border-dashed border-white/5 rounded-2xl flex-1 flex flex-col items-center justify-center">
               <div className="text-4xl mb-4 opacity-50">🧾</div>
               <p className="text-slate-400 text-sm font-medium">No sales records found.</p>
-              <p className="text-xs text-slate-500 mt-2 max-w-xs">Upload a POSExport XML to populate the dashboard with transaction data.</p>
+              <p className="text-xs text-slate-500 mt-2 max-w-xs">Upload a POSExport XML to populate the dashboard with normalized data.</p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-2xl border border-white/5 bg-[#0A0F1C]/50 flex-1">
               <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-white/[0.02]">
                   <tr className="text-slate-400 text-[11px] uppercase tracking-wider font-semibold">
-                    <th className="px-6 py-4 rounded-tl-2xl">ID / Time</th>
-                    <th className="px-6 py-4">Method</th>
-                    <th className="px-6 py-4 text-right rounded-tr-2xl">Total</th>
+                    <th className="px-6 py-4 rounded-tl-2xl">Item / Date</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Store</th>
+                    <th className="px-6 py-4 text-right rounded-tr-2xl">Amount</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/[0.05]">
-                  {sales.map((sale) => (
-                    <tr key={sale.id} className="group hover:bg-white/[0.03] transition-colors cursor-pointer">
+                  {transactions.map((t) => (
+                    <tr key={t.id} className="group hover:bg-white/[0.03] transition-colors cursor-pointer">
                       <td className="px-6 py-4">
-                        <div className="font-mono text-xs text-indigo-300 mb-1">
-                          {sale.transaction_id.length > 20 ? sale.transaction_id.substring(0, 20) + "..." : sale.transaction_id}
+                        <div className="font-semibold text-sm text-slate-200 mb-0.5 flex items-center gap-2">
+                          {t.itemName}
+                          {!t.mapped && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" title="Unmapped product" />}
                         </div>
-                        <div className="text-slate-400 text-[11px] flex items-center gap-1.5">
-                          <span>🕒</span>
-                          {new Date(sale.timestamp).toLocaleString(undefined, { 
-                            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' 
-                          })}
+                        <div className="text-slate-400 text-[11px] flex items-center gap-1.5 font-mono">
+                          {t.businessDate}
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide inline-flex items-center gap-1.5 ${
-                          sale.payment_type.toLowerCase().includes('cash') 
+                          t.mapped 
                             ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                            : 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
+                            : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
                         }`}>
-                          <span className="w-1.5 h-1.5 rounded-full currentColor bg-current"></span>
-                          {sale.payment_type}
+                          <span className={`w-1.5 h-1.5 rounded-full ${t.mapped ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                          {t.mapped ? 'Normalized' : 'Raw'}
                         </span>
                       </td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-400">
+                        {t.storeCode}
+                      </td>
                       <td className="px-6 py-4 text-right font-bold">
-                        <span className="text-white text-base">${sale.grand_total.toFixed(2)}</span>
+                        <div className="text-white text-base">${t.amount.toFixed(2)}</div>
+                        <div className="text-[10px] text-slate-500 font-normal">{t.quantity} unit(s)</div>
                       </td>
                     </tr>
                   ))}

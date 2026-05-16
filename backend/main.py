@@ -306,6 +306,11 @@ async def _process_pos_export_v2(import_id: str, root: dict, store_code: str | N
 
         for item in items_list:
             norm = normalize_item(item)
+            
+            # Check for existing mapping (normalization)
+            alias = await db.productalias.find_first(where={"rawName": norm["itemName"]})
+            master_id = alias.productMasterId if alias else None
+
             await db.saleslineitem.create(data={
                 "importId": import_id,
                 "storeCode": sc,
@@ -319,11 +324,12 @@ async def _process_pos_export_v2(import_id: str, root: dict, store_code: str | N
                 "unitPrice": norm["price"],
                 "salesAmount": norm["salesAmount"],
                 "taxAmount": norm["taxAmount"],
+                "productMasterId": master_id,
             })
             records += 1
 
             # Product extraction
-            await _upsert_product_extract(import_id, sc, bd, norm)
+            await _upsert_product_extract(import_id, sc, bd, norm, master_id)
 
         # Legacy sale upsert
         txn_id = norm_txn["transactionId"]
@@ -415,12 +421,17 @@ async def _process_item_maintenance_v2(import_id: str, root: dict, store_code: s
         norm = normalize_item(item)
         item_code = norm["itemCode"] or norm["upc"]
 
+        # Check for existing mapping
+        alias = await db.productalias.find_first(where={"rawName": norm["itemName"]})
+        master_id = alias.productMasterId if alias else None
+
         # ProductExtract
         await db.productextract.create(data={
             "importId": import_id, "storeCode": sc,
             "rawName": norm["itemName"], "itemCode": norm["itemCode"] or None,
             "upc": norm["upc"] or None, "department": norm["department"] or None,
             "unitPrice": norm["price"] if norm["price"] else None,
+            "productMasterId": master_id,
         })
         records += 1
 
@@ -442,7 +453,7 @@ async def _process_item_maintenance_v2(import_id: str, root: dict, store_code: s
     return records
 
 
-async def _upsert_product_extract(import_id: str, store_code: str, business_date: str, norm: dict):
+async def _upsert_product_extract(import_id: str, store_code: str, business_date: str, norm: dict, master_id: str | None = None):
     raw_name = norm["itemName"]
     if not raw_name or raw_name == "Unknown Item":
         return
@@ -451,19 +462,21 @@ async def _upsert_product_extract(import_id: str, store_code: str, business_date
         "rawName": raw_name, "itemCode": norm["itemCode"] or None,
         "upc": norm["upc"] or None, "department": norm["department"] or None,
         "unitPrice": norm["unitPrice"] if "unitPrice" in norm else norm.get("price"),
+        "productMasterId": master_id,
     })
-    # Check if in ProductAlias, else UnknownProduct
-    alias = await db.productalias.find_first(where={"rawName": raw_name})
-    if not alias:
+    # If not already mapped, track as UnknownProduct
+    if not master_id:
         existing_unknown = await db.unknownproduct.find_first(
             where={"rawName": raw_name, "storeCode": store_code}
         )
         if existing_unknown:
             await db.unknownproduct.update(
-                where={"rawName_storeCode": {"rawName": raw_name, "storeCode": store_code}},
+                where={"id": existing_unknown.id},
                 data={"occurrences": existing_unknown.occurrences + 1}
             )
         else:
+            # Simple fuzzy logic: see if there's a suggested match based on other aliases
+            # (In a real app, you'd use a more advanced fuzzy search)
             await db.unknownproduct.create(data={
                 "rawName": raw_name, "storeCode": store_code, "businessDate": business_date,
             })
@@ -806,19 +819,32 @@ class ResolveProductRequest(BaseModel):
 async def get_unknown_products(
     skip: int = Query(0), limit: int = Query(100, le=500),
 ) -> dict:
+    from difflib import get_close_matches
+    
     records = await db.unknownproduct.find_many(
         order={"occurrences": "desc"}, skip=skip, take=limit
     )
     total = await db.unknownproduct.count()
-    return {
-        "total": total,
-        "products": [
-            {"id": r.id, "rawName": r.rawName, "storeCode": r.storeCode,
-             "businessDate": r.businessDate, "occurrences": r.occurrences,
-             "suggestedMatch": r.suggestedMatch, "createdAt": r.createdAt.isoformat()}
-            for r in records
-        ],
-    }
+    
+    # Get all master names for fuzzy matching
+    all_masters = await db.productmaster.find_many()
+    master_names = [m.canonicalName for m in all_masters]
+    
+    products = []
+    for r in records:
+        suggestion = None
+        if master_names:
+            matches = get_close_matches(r.rawName, master_names, n=1, cutoff=0.6)
+            if matches:
+                suggestion = matches[0]
+        
+        products.append({
+            "id": r.id, "rawName": r.rawName, "storeCode": r.storeCode,
+            "businessDate": r.businessDate, "occurrences": r.occurrences,
+            "suggestedMatch": suggestion or r.suggestedMatch, "createdAt": r.createdAt.isoformat()
+        })
+        
+    return {"total": total, "products": products}
 
 @app.get("/api/products/master", tags=["Product Mapping"])
 async def get_product_masters() -> dict:
@@ -859,6 +885,18 @@ async def resolve_unknown_product(req: ResolveProductRequest) -> dict:
             "productMasterId": master.id
         })
 
+    # ── UPDATE HISTORICAL DATA ───────────────────────────────────────────────
+    # Link all existing SalesLineItems with this raw name to the new master
+    await db.saleslineitem.update_many(
+        where={"itemName": unknown.rawName},
+        data={"productMasterId": master.id}
+    )
+    # Also update ProductExtracts
+    await db.productextract.update_many(
+        where={"rawName": unknown.rawName},
+        data={"productMasterId": master.id}
+    )
+
     # Delete ALL unknown product records with this exact rawName
     await db.unknownproduct.delete_many(where={"rawName": unknown.rawName})
     
@@ -866,6 +904,73 @@ async def resolve_unknown_product(req: ResolveProductRequest) -> dict:
         "id": master.id,
         "canonicalName": master.canonicalName,
     }}
+
+
+# ---------------------------------------------------------------------------
+# Analytics Engine (Normalized Data)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/analytics/overview", tags=["Analytics"])
+async def get_analytics_overview() -> dict:
+    summaries = await db.dailysalessummary.find_many()
+    total_rev = sum(s.grossSales for s in summaries)
+    total_tax = sum(s.taxAmount for s in summaries)
+    total_txns = sum(s.transactionCount for s in summaries)
+    
+    avg_ticket = total_rev / total_txns if total_txns > 0 else 0
+    
+    return {
+        "summary": {
+            "total_revenue": round(total_rev, 2),
+            "total_tax": round(total_tax, 2),
+            "transaction_count": total_txns,
+            "average_ticket": round(avg_ticket, 2)
+        }
+    }
+
+@app.get("/api/analytics/top-products", tags=["Analytics"])
+async def get_top_products(limit: int = Query(5, ge=1, le=50)) -> dict:
+    # Aggregating SalesLineItems by ProductMaster
+    items = await db.saleslineitem.find_many(
+        include={"productMaster": True}
+    )
+    
+    velocity: dict = {}
+    for li in items:
+        # Use canonical name if available, else raw item name
+        name = li.productMaster.canonicalName if li.productMaster else li.itemName
+        if name not in velocity:
+            velocity[name] = {"name": name, "quantity_sold": 0, "revenue": 0.0, "mapped": li.productMasterId is not None}
+        velocity[name]["quantity_sold"] += li.quantity
+        velocity[name]["revenue"] += li.salesAmount
+
+    sorted_v = sorted(velocity.values(), key=lambda x: x["quantity_sold"], reverse=True)
+    return {"data": sorted_v[:limit]}
+
+@app.get("/api/analytics/recent-transactions", tags=["Analytics"])
+async def get_recent_transactions(limit: int = Query(10, le=100)) -> dict:
+    # Synthesize "Transactions" from SalesLineItems since we don't have a Transaction model in the new core (yet)
+    # Actually, we can just show the most recent SalesLineItems as a feed.
+    items = await db.saleslineitem.find_many(
+        order={"createdAt": "desc"},
+        take=limit,
+        include={"productMaster": True}
+    )
+    return {
+        "transactions": [
+            {
+                "id": i.id,
+                "itemName": i.productMaster.canonicalName if i.productMaster else i.itemName,
+                "rawName": i.itemName,
+                "amount": i.salesAmount,
+                "quantity": i.quantity,
+                "storeCode": i.storeCode,
+                "businessDate": i.businessDate,
+                "mapped": i.productMasterId is not None
+            }
+            for i in items
+        ]
+    }
 
 
 # ---------------------------------------------------------------------------
