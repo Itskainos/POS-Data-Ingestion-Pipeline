@@ -167,8 +167,8 @@ export default function ImportDetailPage({ params }: { params: Promise<{ id: str
           {[
             { label: "Store", value: imp.storeCode || "—", accent: true },
             { label: "Business Date", value: imp.businessDate || "—" },
-            { label: "Records", value: imp.recordsExtracted.toString(), green: true },
-            { label: "Errors", value: imp.errorCount.toString(), red: imp.errorCount > 0 },
+            { label: "Records", value: (imp.recordsExtracted ?? 0).toString(), green: true },
+            { label: "Errors", value: (imp.errorCount ?? 0).toString(), red: (imp.errorCount ?? 0) > 0 },
           ].map(({ label, value, accent, green, red }) => (
             <div key={label} className="bg-white/3 border border-white/5 rounded-xl p-4 space-y-1">
               <p className="text-xs text-slate-500 uppercase tracking-wider">{label}</p>
