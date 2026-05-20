@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { use } from "react";
 
 interface ImportDetail {
   import: {
@@ -53,8 +52,8 @@ function formatBytes(b: number) {
   return `${parseFloat((b / Math.pow(k, i)).toFixed(1))} ${["B","KB","MB"][i]}`;
 }
 
-export default function ImportDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function ImportDetailPage({ params }: { params: { id: string } }) {
+  const { id } = params;
   const [data, setData] = useState<ImportDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
