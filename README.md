@@ -18,6 +18,9 @@ A full-stack boilerplate for accepting raw XML files from POS systems, parsing t
 
 ## Getting Started
 
+> [!TIP]
+> This project supports **Doppler Secrets Management** for local development. We recommend referring to the [Doppler Setup Guide](file:///c:/Users/Kainos/Documents/Quicktrackinc/POS%20Data%20Ingestion%20&%20Pipeline/docs/doppler.md) first to set up your environment variables securely.
+
 ### Backend Setup
 
 1. **Navigate to backend**: `cd backend`
@@ -27,10 +30,12 @@ A full-stack boilerplate for accepting raw XML files from POS systems, parsing t
    - Mac/Linux: `source venv/bin/activate`
 4. **Install dependencies**: `pip install -r requirements.txt`
 5. **Set up environment**:
-   - Copy `.env.example` to `.env`
-   - Add your Neon `DATABASE_URL` (ensure `?sslmode=require` is present)
+   - **Using Doppler (Recommended)**: Follow the [Doppler Setup Guide](file:///c:/Users/Kainos/Documents/Quicktrackinc/POS%20Data%20Ingestion%20&%20Pipeline/docs/doppler.md) to link the project.
+   - **Alternative (.env file)**: Copy `.env.example` to `.env` and add your Neon `DATABASE_URL`.
 6. **Generate Prisma Client**: `prisma generate` (ensure you have `prisma` installed via pip or npm)
-7. **Run the server**: `uvicorn main:app --reload`
+7. **Run the server**:
+   - **Using Doppler**: Run the script `scripts\start_backend_doppler.bat` from the root directory.
+   - **Using local env**: `uvicorn main:app --reload` from `backend` directory.
 
 The API will be available at `http://localhost:8000`.
 
@@ -38,7 +43,9 @@ The API will be available at `http://localhost:8000`.
 
 1. **Navigate to frontend**: `cd frontend`
 2. **Install dependencies**: `npm install`
-3. **Run development server**: `npm run dev`
+3. **Run development server**:
+   - **Using Doppler**: `npm run dev:doppler`
+   - **Using local env**: `npm run dev`
 
 The frontend will be available at `http://localhost:3000`.
 

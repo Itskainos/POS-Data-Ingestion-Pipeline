@@ -1,0 +1,3 @@
+setup:
+  project: pos_data-ingestion-pipeline
+  config: dev
