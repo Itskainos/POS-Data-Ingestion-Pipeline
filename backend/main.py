@@ -118,6 +118,32 @@ async def root() -> dict:
 # Helpers
 # ---------------------------------------------------------------------------
 
+from auth import AUTH_SECRET, create_access_token
+import jwt
+from pydantic import BaseModel
+
+class SSOLogin(BaseModel):
+    token: str
+
+@app.post("/api/auth/sso", tags=["Auth"], summary="Consume SSO token from QuickTrack Hub")
+async def sso_login(sso_data: SSOLogin):
+    if not AUTH_SECRET:
+        raise HTTPException(status_code=500, detail="SSO not configured on backend")
+    try:
+        # Hub uses "aud": "pos" and signs with its own AUTH_SECRET
+        payload = jwt.decode(sso_data.token, AUTH_SECRET, algorithms=["HS256"], audience="pos")
+        
+        email = payload.get("email")
+        role = payload.get("role", "ADMIN")
+        
+        # In POS, we don't have a users table right now.
+        # We just issue a local session token to unlock the frontend dashboard.
+        access_token = create_access_token(data={"sub": email, "role": role})
+        return {"access_token": access_token, "token_type": "bearer"}
+    except jwt.PyJWTError as e:
+        logger.error(f"SSO validation failed: {e}")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid SSO token")
+
 def compute_checksum(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
